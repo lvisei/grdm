@@ -13,11 +13,13 @@ import (
 	"sync"
 )
 
+//lint:ignore U1000 todo progress mutex
 type progressWriter struct {
 	total   int64
 	written int64
 }
 
+//lint:ignore U1000 todo progress mutex
 func (pw *progressWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	pw.written += int64(n)

@@ -13,6 +13,18 @@ import (
 	"sync"
 )
 
+type progressWriter struct {
+	total   int64
+	written int64
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	pw.written += int64(n)
+	fmt.Printf("\rprogress: %.2f%%", float64(pw.written)*100/float64(pw.total))
+	return n, nil
+}
+
 type Download struct {
 	// The URL to download
 	Url string
@@ -145,16 +157,30 @@ func (d Download) downloadSection(i int, c [2]int) error {
 	if resp.StatusCode > 299 {
 		return fmt.Errorf("can't process, response is %v", resp.StatusCode)
 	}
-	fmt.Printf("Downloaded %v bytes for section %v\n", resp.Header.Get("Content-Length"), i)
-	b, err := io.ReadAll(resp.Body)
+	fmt.Printf("Downloaded %v bytes for section %v \n", resp.Header.Get("Content-Length"), i)
+
+	tmpFileName := d.getTmpFileName(i)
+	out, err := os.Create(tmpFileName)
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(fmt.Sprintf("%v/section-%v.tmp", d.FileDir, i), b, os.ModePerm)
+	defer out.Close()
+
+	// pw := &progressWriter{total: resp.ContentLength}
+	// _, err = io.Copy(out, io.TeeReader(resp.Body, pw))
+	_, err = io.Copy(out, resp.Body)
 	if err != nil {
 		return err
 	}
+
 	return nil
+
+}
+
+// Get tmp file path
+func (d Download) getTmpFileName(i int) string {
+	tmpFileName := fmt.Sprintf("%v.download%v", d.FilePath, i)
+	return tmpFileName
 }
 
 // Get a new http request
@@ -178,21 +204,26 @@ func (d Download) mergeFiles(sections [][2]int) error {
 		return err
 	}
 	defer f.Close()
+
 	for i := range sections {
-		tmpFileName := fmt.Sprintf("%v/section-%v.tmp", d.FileDir, i)
-		b, err := os.ReadFile(tmpFileName)
+		tmpFileName := d.getTmpFileName(i)
+		tmpFile, err := os.Open(tmpFileName)
 		if err != nil {
 			return err
 		}
-		n, err := f.Write(b)
+
+		written, err := io.Copy(f, tmpFile)
+		tmpFile.Close()
 		if err != nil {
 			return err
 		}
+
 		err = os.Remove(tmpFileName)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%v bytes merged\n", n)
+
+		fmt.Printf("Merged %v bytes for section %v \n", written, i)
 	}
 	return nil
 }
